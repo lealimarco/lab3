@@ -204,6 +204,19 @@ async function fhSurprisedWithSound() {
 }
 
 
+// ---------------- LLM function ----------------
+async function fetchLLM(messages: { role: string; content: string }[]): Promise<string> {
+  const body = { model: "llama3.1", stream: false, messages };
+  const response = await fetch("http://localhost:11434/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  return data.message?.content?.trim() || "Sorry, I cannot respond right now.";
+}
+
+
 // X State Machine
 
 const dmMachine = setup({
@@ -363,43 +376,35 @@ const dmMachine = setup({
     React: {
       invoke: {
         src: fromPromise(async ({ input }) => {
-          const said = input?.toLowerCase() || "";
+          const said = (input || "").trim().toLowerCase();
           console.log("Analyzing user input:", said);
     
           if (said.includes("wow")) {
             await fhSay("You drive me crazy!");
             await fhSurprisedWithSound();
-          } else if (said.includes("eye")) {
-            await fhEyeRoll();
-          } else if (said.includes("good")) {
-            await fhSay("That's wonderful!");
-            await fhBigSmile();
           } else if (said.includes("bad")) {
             await fhSay("Oh no, I'm sorry to hear that. But listen to this:");
             await fhPlayAudio("https://raw.githubusercontent.com/lealimarco/lab3/lab3/src/slim_shady_audio.wav");
             await fhBigSmile();
-          } else if (said.includes("you")) {
-            await fhSay("I'm doing great, thanks for asking!");
-            await fhBigSmile();
-          } else if (said.includes("bye")) {
-            await fhSay("It was nice talking to you.");
+          } else if (said === "bye") {  // <-- EXACT match
+            await fhSay("It was nice talking to you!");
             return "exit";
-          } else if (said.includes("okay")) {
-            await fhSay("Okay! Sounds good.");
-          } else if (said.includes("yes")) {
-            await fhSay("Awesome!");
           } else {
-            await fhSay("If you want to quit say Bye. Otherwise, how are you doing?");
+            // Default fallback: Ask LLM for a response
+            const llmReply = await fetchLLM([{ role: "user", content: said }]);
+            await fhSay(llmReply);
             await fhEyeRoll();
+
+            // Trigger gestures based on LLM content
+            if (llmReply.includes("surprised")) await fhSurprisedWithSound();
           }
     
-          return "continue";
+          return "continue"; // loop back to listening for everything else
         }),
         input: ({ context }) => context.userSpeech,
         onDone: [
           {
             guard: ({ event }) => {
-              console.log("React onDone event:", event.output);
               const result = event.output;
               return result === "exit";
             },
@@ -407,7 +412,10 @@ const dmMachine = setup({
           },
           { target: "Listen" },
         ],
-        onError: { target: "Fail", actions: ({ event }) => console.error(event) },
+        onError: {
+          target: "Fail",
+          actions: ({ event }) => console.error("React state error:", event),
+        },
       },
     },
 
