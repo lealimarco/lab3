@@ -147,19 +147,32 @@ async function fhListen() {
 
 
 // Enable user tracking (Furhat attends to the user)
-async function fhGetUsers() {
-  const response = await fetch(`http://${FURHATURI}/furhat/users`);
-  return response.json();
-}
-
-async function fhAttendUser(userId: string) {
+// Enable user tracking (Furhat attends to the user)
+async function fhAttend() {
   const myHeaders = new Headers();
   myHeaders.append("accept", "application/json");
-  return fetch(`http://${FURHATURI}/furhat/attend?user=${userId}`, {
+
+  return fetch(`http://${FURHATURI}/furhat/attend?user=CLOSEST`, {
     method: "POST",
     headers: myHeaders,
+    body: JSON.stringify({
+      enum: "CLOSEST",
+    }),
   });
 }
+
+async function fhGetUser() {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+
+  return fetch(`http://${FURHATURI}/furhat/users`, {
+    method: "GET",
+    headers: myHeaders,
+  })
+    .then((response) => response.json())
+    .then((data) => data.users || []); // return array of users (empty if none)
+}
+
 
 
 // SOUND
@@ -239,17 +252,11 @@ const dmMachine = setup({
       return fhNeckMovement();
     }),
 
-    fhGetUsers: fromPromise(async () => {
-      const users = await fhGetUsers();
-      if (users.length > 0) {
-        await fhAttendUser(users[0].id);
-        console.log("Attending user:", users[0].id);
-      } else {
-        console.log("No users detected. Attending front.");
-        await fetch(`http://${FURHATURI}/furhat/attend?location=front`, {
-          method: "POST",
-        });
-      }
+   fhAttend: fromPromise<any, null>(async () => {
+      return fhAttend();
+    }),
+   fhGetUser: fromPromise<any, null>(async () => {
+      return fhGetUser();
     }),
 
     fhPlayAudio: fromPromise<any, null>(async () => {
@@ -268,19 +275,33 @@ const dmMachine = setup({
   },
   initial: "Start",
   states: {
-    Start: { after: { 1000: "TrackUser" } },
+    Start: { after: { 1000: "GetUser" } },
     
-    TrackUser: {
+    GetUser: {
       invoke: {
-        src: "fhGetUsers",
+        src: "fhGetUser",      
+        input: null,
+        onDone: {
+          target: "AttendUser",
+          actions: ({ event }) => console.log(event.output),
+        },
+        onError: {
+          target: "Fail",
+          actions: ({ event }) => console.error(event),
+        },
+      },
+    },
+    AttendUser: {
+      invoke: {
+        src: "fhAttend",      
         input: null,
         onDone: {
           target: "Next",
-          actions: () => console.log("User tracking done"),
+          actions: ({ event }) => console.log(event.output),
         },
         onError: {
-          target: "Next",
-          actions: () => console.error("Tracking error"),
+          target: "Fail",
+          actions: ({ event }) => console.error(event),
         },
       },
     },
